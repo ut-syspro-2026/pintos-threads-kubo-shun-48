@@ -35,7 +35,7 @@
 #include "threads/thread.h"
 
 /*ちょっとだけ比較関数を実装する*/
-bool
+static bool
 thread_compare_priority (const struct list_elem *a, const struct list_elem *b, void *aux UNUSED) 
 {
   struct thread *th_a = list_entry (a, struct thread, elem);
@@ -43,6 +43,9 @@ thread_compare_priority (const struct list_elem *a, const struct list_elem *b, v
   return th_a->priority > th_b->priority;
 }
 /*実装おわり*/
+
+
+
 
 /** Initializes semaphore SEMA to VALUE.  A semaphore is a
    nonnegative integer along with two atomic operators for
@@ -191,7 +194,19 @@ void lock_acquire(struct lock *lock) {
   ASSERT(lock != NULL);
   ASSERT(!intr_context());
   ASSERT(!lock_held_by_current_thread(lock));
+  struct thread *current = thread_current();
 
+  /*ここから課題2.2.1の実装*/
+  if (lock ->holder != NULL){
+    thread_current() -> waiting_lock = lock;
+    struct thread *h = lock->holder;
+    int depth = 0; //入れ子の深さを数えるカウンター
+    while (h != NULL && depth <8)
+    {if (h->priority < current->priority) {h->priority = current->priority;}
+      if (h->waiting_lock != NULL) {h = h->waiting_lock->holder; depth++;} 
+    else{break;}
+    }
+  }
   sema_down(&lock->semaphore);
   lock->holder = thread_current();
 }
@@ -221,6 +236,11 @@ bool lock_try_acquire(struct lock *lock) {
 void lock_release(struct lock *lock) {
   ASSERT(lock != NULL);
   ASSERT(lock_held_by_current_thread(lock));
+  struct thread *current_thr = thread_current();
+
+  /*ここから課題2.2.1の実装*/
+  list_remove(&lock->elem);
+  thread_update_priority(current_thr);
 
   lock->holder = NULL;
   sema_up(&lock->semaphore);
@@ -240,6 +260,23 @@ struct semaphore_elem {
   struct list_elem elem;      /**< List element. */
   struct semaphore semaphore; /**< This semaphore. */
 };
+
+/* 2つの semaphore_elem の中にいる最高優先度スレッドを比較するヘルパー関数 */
+static bool
+cond_compare_priority (const struct list_elem *a, const struct list_elem *b, void *aux UNUSED) 
+{
+  /* list_elem から semaphore_elem 構造体のポインタを取得 */
+  struct semaphore_elem *sema_a = list_entry (a, struct semaphore_elem, elem);
+  struct semaphore_elem *sema_b = list_entry (b, struct semaphore_elem, elem);
+
+  /* それぞれのセマフォの waiters リストの先頭（＝最高優先度スレッド）を取得 */
+  struct thread *th_a = list_entry (list_front (&sema_a->semaphore.waiters), struct thread, elem);
+  struct thread *th_b = list_entry (list_front (&sema_b->semaphore.waiters), struct thread, elem);
+
+  /* 降順（優先度が高いものを前に） */
+  return th_a->priority > th_b->priority;
+}
+
 
 /** Initializes condition variable COND.  A condition variable
    allows one piece of code to signal a condition and cooperating
@@ -298,12 +335,14 @@ void cond_signal(struct condition *cond, struct lock *lock UNUSED) {
   ASSERT(!intr_context());
   ASSERT(lock_held_by_current_thread(lock));
 
-  if (!list_empty(&cond->waiters))
+  if (!list_empty(&cond->waiters)) {
+    /*【変更箇所】*/
+    list_sort (&cond->waiters, cond_compare_priority, NULL);
     sema_up(
         &list_entry(list_pop_front(&cond->waiters), struct semaphore_elem, elem)
              ->semaphore);
+  }
 }
-
 /** Wakes up all threads, if any, waiting on COND (protected by
    LOCK).  LOCK must be held before calling this function.
 

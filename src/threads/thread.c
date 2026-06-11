@@ -72,8 +72,11 @@ static void schedule(void);
 void thread_schedule_tail(struct thread *prev);
 static tid_t allocate_tid(void);
 
+void thread_update_priority (struct thread *t);
+static bool thread_compare_priority (const struct list_elem *a, const struct list_elem *b, void *aux);
+
 /*ここから少し課題2の実装*/
-bool
+static bool
 thread_compare_priority (const struct list_elem *a, const struct list_elem *b, void *aux UNUSED) 
 {
   struct thread *th_a = list_entry (a, struct thread, elem);
@@ -317,10 +320,31 @@ void thread_foreach(thread_action_func *func, void *aux) {
 /** Sets the current thread's priority to NEW_PRIORITY. */
 void thread_set_priority(int new_priority) {
   thread_current()->priority = new_priority;
+  struct thread *current_thr = thread_current ();
+  current_thr->base_priority = new_priority;
+  thread_update_priority (current_thr);
+  if (!list_empty (&ready_list)) 
+    {struct thread *highest_ready_thr = list_entry (list_front (&ready_list), struct thread, elem);
+      if (current_thr->priority < highest_ready_thr->priority) {thread_yield ();}
+    }
+}
+
+/*thread donateのあとに実行優先度を更新するためのヘルパー関数の実装*/
+void
+thread_update_priority(struct thread *t) {
+  t -> priority = t -> base_priority;
+  if (!list_empty(&t -> locks)){
+    struct lock *l = list_entry(list_front(&t -> locks), struct lock, elem);
+    struct thread *donor = l -> holder;
+    if (donor != NULL && donor -> priority > t -> priority) {
+      t -> priority = donor -> priority;
+    }
+  }
 }
 
 /** Returns the current thread's priority. */
-int thread_get_priority(void) { return thread_current()->priority; }
+int thread_get_priority(void) { 
+  return thread_current()->priority; }
 
 /** Sets the current thread's nice value to NICE. */
 void thread_set_nice(int nice UNUSED) { /* Not yet implemented. */ }
@@ -423,6 +447,11 @@ static void init_thread(struct thread *t, const char *name, int priority) {
   old_level = intr_disable();
   list_push_back(&all_list, &t->allelem);
   intr_set_level(old_level);
+
+    /*課題2.2.1において新たに追加した構造体の初期化を行います。*/
+  t -> base_priority = priority;
+  list_init(&t -> locks);
+  t -> waiting_lock = NULL;
 }
 
 /** Allocates a SIZE-byte frame at the top of thread T's stack and

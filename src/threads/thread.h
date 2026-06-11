@@ -95,9 +95,16 @@ struct thread {
   /* Owned by userprog/process.c. */
   uint32_t *pagedir; /**< Page directory. */
 #endif
-
-  /* Owned by thread.c. */
   unsigned magic; /**< Detects stack overflow. */
+
+  int base_priority;
+  struct list locks;
+  struct lock *waiting_lock;
+
+  int64_t wakeup_ticks;               /* 次に目を覚ますべき時間（Tick数） */
+    struct list_elem elem_sleep;        /* スリープ状態のスレッドリスト（sleepers）に繋ぐための要素 */
+
+    /* ... その他の既存のメンバー ... */
 };
 
 /** If false (default), use round-robin scheduler.
@@ -135,5 +142,7 @@ int thread_get_nice(void);
 void thread_set_nice(int);
 int thread_get_recent_cpu(void);
 int thread_get_load_avg(void);
+
+void thread_update_priority (struct thread *t);
 
 #endif /**< threads/thread.h */

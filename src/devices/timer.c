@@ -4,8 +4,6 @@
 #include <inttypes.h>
 #include <round.h>
 #include <stdio.h>
-#include <unistd.h>
-
 #include "devices/pit.h"
 #include "threads/interrupt.h"
 #include "threads/synch.h"
