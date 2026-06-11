@@ -72,6 +72,16 @@ static void schedule(void);
 void thread_schedule_tail(struct thread *prev);
 static tid_t allocate_tid(void);
 
+/*ここから少し課題2の実装*/
+bool
+thread_compare_priority (const struct list_elem *a, const struct list_elem *b, void *aux UNUSED) 
+{
+  struct thread *th_a = list_entry (a, struct thread, elem);
+  struct thread *th_b = list_entry (b, struct thread, elem);
+  return th_a->priority > th_b->priority;
+}
+/*ここまで課題2の実装*/
+
 /** Initializes the threading system by transforming the code
    that's currently running into a thread.  This can't work in
    general and it is possible in this case only because loader.S
@@ -188,7 +198,7 @@ tid_t thread_create(const char *name, int priority, thread_func *function,
 
   /* Add to run queue. */
   thread_unblock(t);
-
+  if (priority > thread_current()->priority) thread_yield();
   return tid;
 }
 
@@ -214,17 +224,24 @@ void thread_block(void) {
    be important: if the caller had disabled interrupts itself,
    it may expect that it can atomically unblock a thread and
    update other data. */
-void thread_unblock(struct thread *t) {
+
+
+/*ここから課題2の実装*/
+void
+thread_unblock (struct thread *t) 
+{
   enum intr_level old_level;
 
-  ASSERT(is_thread(t));
+  ASSERT (is_thread (t));
 
-  old_level = intr_disable();
-  ASSERT(t->status == THREAD_BLOCKED);
-  list_push_back(&ready_list, &t->elem);
+  old_level = intr_disable ();
+  ASSERT (t->status == THREAD_BLOCKED);
+  list_insert_ordered (&ready_list, &t->elem, thread_compare_priority, NULL);
+  
   t->status = THREAD_READY;
-  intr_set_level(old_level);
+  intr_set_level (old_level);
 }
+/*ここまで課題2の実装*/
 
 /** Returns the name of the running thread. */
 const char *thread_name(void) { return thread_current()->name; }
@@ -277,11 +294,12 @@ void thread_yield(void) {
   ASSERT(!intr_context());
 
   old_level = intr_disable();
-  if (cur != idle_thread) list_push_back(&ready_list, &cur->elem);
+  if (cur != idle_thread) list_insert_ordered(&ready_list, &cur->elem, thread_compare_priority, NULL);
   cur->status = THREAD_READY;
   schedule();
   intr_set_level(old_level);
 }
+
 
 /** Invoke function 'func' on all threads, passing along 'aux'.
    This function must be called with interrupts off. */

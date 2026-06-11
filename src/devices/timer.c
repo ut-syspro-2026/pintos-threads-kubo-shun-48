@@ -4,11 +4,13 @@
 #include <inttypes.h>
 #include <round.h>
 #include <stdio.h>
+#include <unistd.h>
 
 #include "devices/pit.h"
 #include "threads/interrupt.h"
 #include "threads/synch.h"
 #include "threads/thread.h"
+#include "lib/kernel/list.h"
 
 /** See [8254] for hardware details of the 8254 timer chip. */
 
@@ -21,6 +23,13 @@
 
 /** Number of timer ticks since OS booted. */
 static int64_t ticks;
+static struct list sleepers;
+
+struct sleeper {
+   int64_t wake_tick; // 目覚めるべき時刻
+   struct thread *thread; // スレッド
+   struct list_elem elem;
+};
 
 /** Number of loops per timer tick.
    Initialized by timer_calibrate(). */
@@ -37,6 +46,8 @@ static void real_time_delay(int64_t num, int32_t denom);
 void timer_init(void) {
   pit_configure_channel(0, 2, TIMER_FREQ);
   intr_register_ext(0x20, timer_interrupt, "8254 Timer");
+  list_init(&sleepers);
+
 }
 
 /** Calibrates loops_per_tick, used to implement brief delays. */
@@ -76,12 +87,23 @@ int64_t timer_elapsed(int64_t then) { return timer_ticks() - then; }
 
 /** Sleeps for approximately TICKS timer ticks.  Interrupts must
    be turned on. */
-void timer_sleep(int64_t ticks) {
-  int64_t start = timer_ticks();
 
-  ASSERT(intr_get_level() == INTR_ON);
-  while (timer_elapsed(start) < ticks) thread_yield();
+   /*ここからが課題の実装*/
+void timer_sleep(int64_t ticks) {
+  if (ticks <= 0) return; // 0以下の場合は待つ必要なし
+
+  ASSERT(intr_get_level() == INTR_ON); 
+  enum intr_level old_level = intr_disable ();
+  struct thread *current = thread_current();
+  current->wakeup_ticks = timer_ticks() + ticks;
+  list_push_back(&sleepers, &current->elem_sleep);
+  thread_block();
+  
+  intr_set_level (old_level);
 }
+/*ここまでが課題の実装*/
+
+
 
 /** Sleeps for approximately MS milliseconds.  Interrupts must be
    turned on. */
@@ -127,11 +149,30 @@ void timer_print_stats(void) {
   printf("Timer: %" PRId64 " ticks\n", timer_ticks());
 }
 
-/** Timer interrupt handler. */
+/** Timer interrupt handler.*/
 static void timer_interrupt(struct intr_frame *args UNUSED) {
   ticks++;
   thread_tick();
+
+  /*ここから課題の実装*/
+  struct list_elem *e = list_begin (&sleepers);
+  while (e != list_end (&sleepers)) 
+  {
+    struct list_elem *next = list_next (e);
+    struct thread *t = list_entry (e, struct thread, elem_sleep);
+    if (ticks >= t->wakeup_ticks) 
+    {
+      list_remove (e);
+      thread_unblock (t);
+    }
+    e = next;
+  }
+  /*ここまで課題の実装*/
 }
+
+
+
+
 
 /** Returns true if LOOPS iterations waits for more than one timer
    tick, otherwise false. */

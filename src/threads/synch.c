@@ -34,6 +34,16 @@
 #include "threads/interrupt.h"
 #include "threads/thread.h"
 
+/*ちょっとだけ比較関数を実装する*/
+bool
+thread_compare_priority (const struct list_elem *a, const struct list_elem *b, void *aux UNUSED) 
+{
+  struct thread *th_a = list_entry (a, struct thread, elem);
+  struct thread *th_b = list_entry (b, struct thread, elem);
+  return th_a->priority > th_b->priority;
+}
+/*実装おわり*/
+
 /** Initializes semaphore SEMA to VALUE.  A semaphore is a
    nonnegative integer along with two atomic operators for
    manipulating it:
@@ -57,6 +67,8 @@ void sema_init(struct semaphore *sema, unsigned value) {
    interrupt handler.  This function may be called with
    interrupts disabled, but if it sleeps then the next scheduled
    thread will probably turn interrupts back on. */
+
+/*ここから課題２の実装*/
 void sema_down(struct semaphore *sema) {
   enum intr_level old_level;
 
@@ -64,13 +76,15 @@ void sema_down(struct semaphore *sema) {
   ASSERT(!intr_context());
 
   old_level = intr_disable();
-  while (sema->value == 0) {
-    list_push_back(&sema->waiters, &thread_current()->elem);
-    thread_block();
-  }
+  while (sema->value == 0){
+      list_insert_ordered (&sema->waiters, &thread_current ()->elem, 
+                           thread_compare_priority, NULL);
+      thread_block ();
+    }
   sema->value--;
   intr_set_level(old_level);
 }
+/*ここまで課題２の実装*/
 
 /** Down or "P" operation on a semaphore, but only if the
    semaphore is not already 0.  Returns true if the semaphore is
@@ -109,6 +123,7 @@ void sema_up(struct semaphore *sema) {
         list_entry(list_pop_front(&sema->waiters), struct thread, elem));
   sema->value++;
   intr_set_level(old_level);
+  if (!list_empty(&sema->waiters) && thread_current()->priority < list_entry(list_front(&sema->waiters), struct thread, elem)->priority) thread_yield();
 }
 
 static void sema_test_helper(void *sema_);
